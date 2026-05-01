@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bike + Brew · Passport Tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/app.css">
+
+  <!-- Config injected by the server at request time — see server.js -->
+  <!-- Users never see API keys; they are kept in .env on the server -->
+  <script>
+    window.__CONFIG__ = {
+      mapsApiKey:  "%%MAPS_API_KEY%%",
+      firebaseConfig: %%FIREBASE_CONFIG%%
+    };
+  </script>
+</head>
+<body>
+
+<!-- ══ AUTH OVERLAY ══════════════════════════════════════════════════════════ -->
+<div id="auth-overlay">
+  <div class="auth-card">
+    <button class="auth-close" onclick="closeAuth()">✕</button>
+    <h2>Rider Account</h2>
+    <p>Log in to track stamps, join the leaderboard, and sync across devices.</p>
+    <div class="auth-tabs">
+      <button class="auth-tab active" onclick="authTab('login',this)">Log In</button>
+      <button class="auth-tab" onclick="authTab('signup',this)">Sign Up</button>
+    </div>
+    <div id="at-login">
+      <input class="auth-input" id="login-email" type="email" placeholder="Email" autocomplete="email">
+      <input class="auth-input" id="login-pass" type="password" placeholder="Password" autocomplete="current-password">
+      <div class="auth-err" id="login-err"></div>
+      <button class="btn-full" onclick="doLogin()">Log In</button>
+    </div>
+    <div id="at-signup" style="display:none">
+      <input class="auth-input" id="signup-name" type="text" placeholder="Rider name (shown on leaderboard)" autocomplete="nickname">
+      <input class="auth-input" id="signup-email" type="email" placeholder="Email" autocomplete="email">
+      <input class="auth-input" id="signup-pass" type="password" placeholder="Password (min 6 chars)" autocomplete="new-password">
+      <div class="auth-err" id="signup-err"></div>
+      <button class="btn-full" onclick="doSignup()">Create Account</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ HEADER ════════════════════════════════════════════════════════════════ -->
+<header>
+  <div class="h-logo">🏍️ Bike+Brew</div>
+  <div class="h-stats">
+    <div class="hstat"><div class="hstat-v a" id="hs-stamped">0</div><div class="hstat-l">Stamped</div></div>
+    <div class="hstat"><div class="hstat-v r" id="hs-left">296</div><div class="hstat-l">To Go</div></div>
+    <div class="hstat"><div class="hstat-v g" id="hs-entries">0</div><div class="hstat-l">Prize Draws</div></div>
+  </div>
+  <div class="h-right">
+    <span class="h-user" id="h-username">Not signed in</span>
+    <button class="h-btn h-btn-amber" id="h-auth-btn" onclick="openAuth()">Sign In</button>
+    <button class="h-btn h-btn-ghost" id="h-signout-btn" style="display:none" onclick="doSignout()">Sign Out</button>
+  </div>
+</header>
+
+<!-- ══ NAV ════════════════════════════════════════════════════════════════════ -->
+<nav class="nav-bar">
+  <button class="nav-tab active" onclick="showPage('map',this)">🗺️ Map & Stamps</button>
+  <button class="nav-tab" onclick="showPage('route',this)">🧭 Route Planner</button>
+  <button class="nav-tab" onclick="showPage('leaderboard',this)">🏆 Leaderboard</button>
+  <button class="nav-tab" onclick="showPage('groups',this)">👥 My Groups</button>
+</nav>
+
+<!-- ══ APP ════════════════════════════════════════════════════════════════════ -->
+<div class="app">
+
+  <!-- ── MAP PAGE ── -->
+  <div class="page active" id="page-map">
+    <div class="sidebar">
+      <div class="sidebar-top">
+        <div class="search-wrap">
+          <span class="si">🔍</span>
+          <input type="text" id="search-input" placeholder="Search venue or location…" oninput="onSearch(this.value)">
+        </div>
+        <div class="ftabs">
+          <button class="ftab active" onclick="setFilter('all',this)">All</button>
+          <button class="ftab" onclick="setFilter('stamped',this)" id="ft-stamped">Done (0)</button>
+          <button class="ftab" onclick="setFilter('todo',this)" id="ft-todo">To Do (296)</button>
+        </div>
+      </div>
+      <div class="venue-list" id="venue-list"></div>
+    </div>
+    <div class="map-wrap">
+      <div class="prog-sec">
+        <div class="prog-row">
+          <span class="prog-lbl">Passport Progress</span>
+          <span class="prog-ct" id="prog-ct">0 / 296</span>
+        </div>
+        <div class="prog-bar-bg"><div class="prog-bar-fill" id="prog-bar" style="width:0%"></div></div>
+      </div>
+      <div id="map-ph" class="map-ph">
+        <div style="text-align:center;color:#888;font-size:13px">
+          <div style="font-size:36px;margin-bottom:10px">🏍️</div>
+          <div>Loading map…</div>
+        </div>
+      </div>
+      <div id="map" style="display:none;flex:1"></div>
+    </div>
+  </div>
+
+  <!-- ── ROUTE PAGE ── -->
+  <div class="page" id="page-route">
+    <div class="sidebar">
+      <div class="sidebar-top">
+        <div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#888;margin-bottom:6px">Select stops for your route</div>
+        <div class="search-wrap">
+          <span class="si">🔍</span>
+          <input type="text" id="route-search" placeholder="Search venue…" oninput="onRouteSearch(this.value)">
+        </div>
+      </div>
+      <div class="venue-list" id="route-venue-list"></div>
+    </div>
+    <div class="map-wrap">
+      <div class="route-panel" id="route-panel">
+        <div class="rp-header">
+          <div class="rp-title">🧭 Route Planner</div>
+          <button class="lb-refresh" onclick="clearRoute()">Clear All</button>
+        </div>
+        <div class="rp-stops" id="rp-stops">
+          <span style="font-size:12px;color:#666">Select venues from the list →</span>
+        </div>
+        <div class="rp-info" id="rp-info" style="display:none">
+          Distance: <span id="rp-dist">—</span> &nbsp;|&nbsp; Est. ride time: <span id="rp-time">—</span>
+        </div>
+        <div class="rp-btns">
+          <button class="rp-btn rp-btn-blue" onclick="calcRoute()">Calculate Route</button>
+          <button class="rp-btn rp-btn-ghost" onclick="openInGoogleMaps()">Open in Google Maps</button>
+        </div>
+      </div>
+      <div id="route-map-ph" class="map-ph" style="flex:1">
+        <div style="text-align:center;color:#888;font-size:13px">
+          <div style="font-size:32px;margin-bottom:8px">🧭</div>
+          Map loading…
+        </div>
+      </div>
+      <div id="route-map" style="display:none;flex:1"></div>
+    </div>
+  </div>
+
+  <!-- ── LEADERBOARD PAGE ── -->
+  <div class="page" id="page-leaderboard" style="overflow:hidden">
+    <div class="lb-page">
+      <div class="lb-header">
+        <div class="lb-title">🏆 Leaderboard</div>
+        <div class="lb-sub">2026 Bike + Brew Passport</div>
+        <button class="lb-refresh" onclick="refreshCurrentLB()" style="margin-left:auto">↻ Refresh</button>
+      </div>
+      <div class="lb-view-tabs" id="lb-view-tabs">
+        <button class="lb-view-tab active" data-view="public" onclick="switchLBView('public',this)">🌍 Public</button>
+      </div>
+      <div id="lb-content"><div class="lb-loading">Loading riders…</div></div>
+    </div>
+  </div>
+
+  <!-- ── GROUPS PAGE ── -->
+  <div class="page" id="page-groups" style="overflow:hidden">
+    <div class="lb-page">
+      <div class="lb-header">
+        <div class="lb-title">👥 My Groups</div>
+        <div class="lb-sub">Ride together, compete together</div>
+        <div style="margin-left:auto;display:flex;gap:8px">
+          <button class="lb-refresh" onclick="openJoinGroup()">+ Join Group</button>
+          <button class="lb-refresh" style="border-color:#7c5cbf;color:#a080e0" onclick="openCreateGroup()">+ Create Group</button>
+        </div>
+      </div>
+      <div id="groups-content"><div class="lb-loading">Loading your groups…</div></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ══ STAMP MODAL ════════════════════════════════════════════════════════════ -->
+<div class="modal-bg" id="modal" onclick="modalOutside(event)">
+  <div class="modal">
+    <div class="mnum" id="m-num">VENUE #000</div>
+    <div class="mname" id="m-name">—</div>
+    <div class="mloc" id="m-loc">—</div>
+    <div id="m-auth-req" class="auth-required" style="display:none">
+      <a onclick="closeModal();openAuth()">Sign in</a> to save stamps to the leaderboard
+    </div>
+    <label class="mlabel">Date Visited</label>
+    <input class="minput" type="date" id="m-date">
+    <label class="mlabel">Rating</label>
+    <div class="stars-row" id="stars-row">
+      <button class="star-btn" data-v="1">☆</button>
+      <button class="star-btn" data-v="2">☆</button>
+      <button class="star-btn" data-v="3">☆</button>
+      <button class="star-btn" data-v="4">☆</button>
+      <button class="star-btn" data-v="5">☆</button>
+    </div>
+    <label class="mlabel">Notes / Memories</label>
+    <textarea class="minput mtextarea" id="m-note" placeholder="Great coffee, epic roads…"></textarea>
+    <div class="mbtns" id="m-btns"></div>
+  </div>
+</div>
+
+<!-- ══ GROUP MODAL ════════════════════════════════════════════════════════════ -->
+<div class="group-modal-bg" id="group-modal" onclick="groupModalOutside(event)">
+  <div class="group-modal">
+    <div class="gm-title" id="gm-title">Create Group</div>
+    <div class="gm-sub" id="gm-sub">Share the invite code with your riding mates</div>
+    <div class="gm-section" id="gm-name-section">
+      <label class="gm-label">Group Name</label>
+      <input class="gm-input" id="gm-name-input" placeholder="e.g. South Wales Crew…">
+      <label class="gm-label">Group Emoji</label>
+      <div id="gm-emoji-grid" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"></div>
+      <div class="gm-err" id="gm-name-err"></div>
+    </div>
+    <div class="gm-section" id="gm-code-section" style="display:none">
+      <label class="gm-label">Invite Code — share this with your group</label>
+      <div class="gm-code-box">
+        <div>
+          <div class="gm-code" id="gm-code-display">——</div>
+          <div class="gm-code-hint">Others enter this code to join</div>
+        </div>
+        <button class="gm-copy-btn" onclick="copyGroupCode()">Copy Code</button>
+      </div>
+    </div>
+    <div class="gm-section" id="gm-members-section" style="display:none">
+      <label class="gm-label">Members (<span id="gm-member-count">0</span>)</label>
+      <div class="gm-members" id="gm-members-list"></div>
+    </div>
+    <div class="gm-section" id="gm-danger-section" style="display:none">
+      <div class="gm-danger-zone">
+        <button class="gm-btn-ghost" style="color:#e8394a;border-color:#e8394a;width:100%" id="gm-danger-btn" onclick="groupDangerAction()">Leave Group</button>
+      </div>
+    </div>
+    <div class="gm-err" id="gm-err"></div>
+    <div class="gm-btns">
+      <button class="gm-btn-ghost" onclick="closeGroupModal()">Close</button>
+      <button class="gm-btn-purple" id="gm-action-btn" onclick="groupModalAction()">Create Group</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ JOIN GROUP MODAL ═══════════════════════════════════════════════════════ -->
+<div class="join-modal-bg" id="join-modal" onclick="joinModalOutside(event)">
+  <div class="join-modal">
+    <div class="gm-title">Join a Group</div>
+    <div class="gm-sub" style="margin-bottom:18px">Enter the 6-character invite code</div>
+    <label class="gm-label">Invite Code</label>
+    <input class="gm-input" id="join-code-input" placeholder="ABC123" maxlength="6"
+      style="font-family:monospace;font-size:20px;letter-spacing:.3em;text-transform:uppercase;text-align:center">
+    <div class="gm-err" id="join-err"></div>
+    <div class="gm-btns">
+      <button class="gm-btn-ghost" onclick="closeJoinModal()">Cancel</button>
+      <button class="gm-btn-purple" onclick="doJoinGroup()">Join Group</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- Firebase SDK (loaded as ES module) -->
+<script type="module" src="js/firebase-init.js"></script>
+
+<!-- App scripts (order matters) -->
+<script src="js/venues.js"></script>
+<script src="js/app.js"></script>
+<script src="js/groups.js"></script>
+
+</body>
+</html>
